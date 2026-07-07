@@ -1,0 +1,699 @@
+capability_summary:
+  capability_id: C-01-S4
+  capability_name: Insured Engagement & Tracking
+  operation_primary: orchestration
+  business_goal: Enable reliable, auditable, and configurable tracking of insured interactions by orchestrating async event ingestion, representation-based routing, statutory deadline enforcement, and real-time operational visibility without degrading core transactional performance.
+  enriched_description: Translates the integration-layer orchestration boundary into a delivery-ready blueprint. The integration layer manages event-driven ingestion, message routing, saga coordination, and idempotent portal updates via a message queue/event bus. The application layer hosts the configurable workflow state machine, rules evaluation engine, and statutory diary scheduler. Read-optimized DynamoDB tables (Audit_Diary_Manager_dynamodb, Central_Data_Store_dynamodb) serve as materialized views for operational dashboards, preserving OLTP performance. Explicit event schemas, idempotency keys, workflow state transitions, and explainability outputs are enforced to meet compliance, audit, and maintainability requirements.
+  primary_users:
+  - applicant/member/user
+  - case worker/agent
+  - operations analyst
+  - policy administrator
+  - compliance auditor
+  expected_business_outcomes:
+  - 99.9% on-time statutory deadline compliance through configurable workflow scheduling
+  - 100% audit-ready decision trails with explainability for all routing and status changes
+  - Sub-second portal update latency via async event-driven routing
+  - Zero duplicate processing through enforced idempotency keys and deduplication
+  - Real-time operational visibility via read-optimized dashboard views
+  scope:
+  in_scope:
+  - Async event ingestion and routing for insured engagement
+  - Configurable workflow engine for representation-based routing and statutory diaries
+  - Workflow state machine execution and rules evaluation
+  - Idempotent portal update orchestration
+  - Materialized view population for operational dashboards
+  - Audit trail capture and decision explainability
+  out_of_scope:
+  - Core policy issuance or premium calculation
+  - Direct regulatory filing submissions
+  - Payment processing or claims adjudication engines
+  - External system API development (assumed as provided)
+
+industry_context:
+  industry_name: Insurance
+  country_or_region: unspecified
+  relevant_domain_concepts:
+  - First Notice of Loss (FNOL)
+  - Representation-based routing
+  - Statutory diary deadlines
+  - Claims lifecycle tracking
+  - Audit trail and decision explainability
+  - Idempotent event processing
+  industry_specific_workflows:
+  - Ingest engagement event -> Validate schema & idempotency -> Route to representation queue -> Trigger workflow state transition -> Update statutory diary -> Emit portal update event -> Populate materialized view
+  - Manual override -> Apply approval rules -> Log explainability context -> Recalculate deadlines -> Re-sync dashboard view
+  regulatory_or_policy_drivers:
+  - Statutory reporting deadlines for policyholder communications
+  - Audit and explainability requirements for routing decisions
+  - Data retention and privacy standards for insured records
+  key_external_data_categories:
+  - Eligibility registry data
+  - Coverage and policy rule repositories
+  - Statutory calendar and jurisdictional threshold tables
+  - External claims/transaction system status feeds
+  operational_constraints:
+  - Async processing required to decouple ingestion from downstream execution
+  - Hard-coded branching prohibited; all routing must be configuration-driven
+  - Dashboard queries must not impact OLTP write performance
+  terminology:
+  - term: Representation-based routing
+    meaning: Automatic assignment of engagement tasks to specific channels or personnel based on insured status, policy type, or regulatory representation requirements
+  - term: Statutory diary
+    meaning: Configurable deadline tracker enforcing legally mandated communication or action windows
+  - term: Materialized view
+    meaning: Read-optimized data store pre-aggregated from transactional sources to support fast dashboard queries
+  - term: Idempotency key
+    meaning: Unique request identifier ensuring duplicate events produce exactly one side effect
+
+user_stories:
+- id: US-001
+  title: Case worker receives routed engagement task with deadline tracking
+  persona: case worker/agent
+  persona_type: primary_business_user
+  trigger: FNOL or engagement event received and routed to agent queue
+  story: As a case worker, I want to receive automatically routed engagement tasks with clear statutory deadlines and representation context, so I can prioritize insured interactions without manual triage.
+  business_value: Reduces manual routing effort, ensures compliance with statutory windows, and accelerates insured response times.
+  priority: P0
+  preconditions:
+  - Event bus is active and subscribed to engagement topics
+  - Workflow engine is configured with representation rules
+  - Case worker has valid role-based access
+  algorithm_to_be_tested:
+    name: RepresentationBasedRoutingAlgorithm
+    purpose: Determine target queue/person based on insured representation attributes
+    applies_when: New engagement event arrives with representation metadata
+    description: Evaluates policy type, jurisdiction, and representation flags against configurable routing matrix to assign target queue.
+    input_criteria:
+      required_inputs:
+      - event_payload.representation_type
+      - event_payload.jurisdiction
+      - event_payload.policy_category
+      optional_inputs:
+      - event_payload.priority_tier
+      - event_payload.language_preference
+      input_validation:
+      - All required fields present and non-null
+      - Jurisdiction matches active reference table
+      freshness_requirements:
+      - Routing rules must be versioned and effective-dated
+      processing_steps:
+      - step: Fetch active routing configuration
+        description: Load routing matrix for jurisdiction and policy category
+      - step: Evaluate representation flags
+        description: Apply priority rules to determine target queue
+      - step: Resolve conflicts
+        description: If multiple rules match, use highest priority rule
+      - step: Emit routing decision
+        description: Output target queue and deadline offset
+      business_rules:
+      - Statutory deadlines override default SLA windows
+      - Language preference influences channel routing but not queue assignment
+      decision_points:
+      - decision: Rule conflict resolution
+        rule: Priority-based override with fallback to default queue
+        expected_outcome: Single deterministic target queue
+      output_criteria:
+      success_outputs:
+      - Routing decision record with queue ID, deadline offset, and rule version
+      failure_outputs:
+      - Fallback to default queue with warning event
+      status_updates:
+      - Workflow state transitions to ROUTED
+      emitted_events:
+      - engagement.task.assigned
+      - statutory.deadline.calculated
+      user_visible_outputs:
+      - Task appears in case worker console with deadline countdown
+      edge_cases:
+      - Missing jurisdiction field defaults to global routing matrix
+      - Policy category deprecated mid-lifecycle re-evaluates routing
+      negative_scenarios:
+      - Routing config missing triggers fallback and alerts admin
+      explainability_expectations:
+      - Log which rules matched, priority order, and fallback behavior
+      audit_evidence:
+      - Rule version, match timestamp, decision context JSON
+      sample_test_scenarios:
+      - scenario: Standard routing
+        given: Valid representation and jurisdiction
+        when: Event ingested
+        then: Task assigned to correct queue with statutory deadline
+      - scenario: Missing jurisdiction
+        given: Jurisdiction field null
+        when: Event ingested
+        then: Falls back to global matrix and logs warning
+      main_success_flow:
+      - step: Ingest event
+      - step: Validate schema
+      - step: Execute routing algorithm
+      - step: Publish task.assigned event
+      alternate_flows:
+      - scenario: Rule version mismatch
+        behavior: Use latest effective version, log deprecation warning
+      exception_flows:
+      - scenario: Routing service timeout
+        behavior: Retry with exponential backoff, fallback to default queue after 3 attempts
+  acceptance_criteria:
+  - Task appears in console within 2 seconds of event ingestion
+  - Deadline calculated matches statutory configuration within 1 minute
+  - Routing decision logged with explainability context
+  data_dependencies:
+  - Routing configuration table
+  - Statutory calendar reference data
+  - Event schema validation store
+  audit_or_explainability_needs:
+  - Rule version, match timestamp, fallback flags, decision context
+  layer_implications:
+  integration:
+  - Event schema validation
+  - Idempotency key extraction
+  - Async publish to routing queue
+  application:
+  - Workflow state machine update
+  - Rules engine execution
+  - Statutory diary scheduler invocation
+- id: US-002
+  title: Policy admin configures representation routing rules without code deployment
+  persona: policy administrator
+  persona_type: secondary_business_user
+  trigger: Admin accesses configuration console to update routing matrix
+  story: As a policy administrator, I want to configure representation-based routing rules and statutory deadlines through a UI, so I can adapt to regulatory changes without engineering deployment.
+  business_value: Enables agile policy updates, reduces deployment risk, and ensures business owners control routing logic.
+  priority: P1
+  preconditions:
+  - Admin has configuration management role
+  - Rule versioning system is active
+  algorithm_to_be_tested:
+    name: ConfigurableRuleVersioningAlgorithm
+    purpose: Validate, version, and activate routing configuration changes
+    applies_when: Admin submits rule update request
+    description: Validates input fields, assigns version number, applies effective date, and publishes config change event.
+    input_criteria:
+      required_inputs:
+      - rule_id
+      - representation_criteria
+      - target_queue
+      - effective_date
+      optional_inputs:
+      - expiration_date
+      - override_priority
+      input_validation:
+      - Effective date is in future or today
+      - Representation criteria non-empty
+      - Target queue exists in reference table
+      freshness_requirements:
+      - Config changes propagate to workflow engine within 5 minutes
+      processing_steps:
+      - step: Validate input fields
+        description: Check schema and reference table existence
+      - step: Generate version number
+        description: Increment major/minor based on change type
+      - step: Apply effective date logic
+        description: Schedule activation or immediate apply
+      - step: Publish config event
+        description: Emit rule.updated event to config bus
+      business_rules:
+      - Only one active version per rule_id at a time
+      - Effective date cannot be in the past without approval override
+      decision_points:
+      - decision: Activation timing
+        rule: Immediate vs scheduled based on effective_date
+        expected_outcome: Config published with correct activation flag
+      output_criteria:
+      success_outputs:
+      - Versioned config record, activation timestamp, event ID
+      failure_outputs:
+      - Validation error response with field-level messages
+      status_updates:
+      - Config status transitions to PENDING_APPROVAL or ACTIVE
+      emitted_events:
+      - config.rule.updated
+      - config.effective.scheduled
+      user_visible_outputs:
+      - Console shows updated rule with version and status
+      edge_cases:
+      - Simultaneous updates by multiple admins handled via optimistic locking
+      - Expired rules automatically archived
+      negative_scenarios:
+      - Invalid target queue rejects update with clear error
+      explainability_expectations:
+      - Change history, approver ID, effective date justification
+      audit_evidence:
+      - Version chain, approval trail, diff snapshot
+      sample_test_scenarios:
+      - scenario: Valid immediate update
+        given: Future effective date set to today
+        when: Admin submits
+        then: Rule activates immediately, event emitted
+      - scenario: Duplicate rule_id update
+        given: Active version exists
+        when: Admin submits without expiry
+        then: System enforces single active version, returns conflict
+      main_success_flow:
+      - step: Admin submits config
+      - step: System validates
+      - step: Version increments
+      - step: Config published
+      alternate_flows:
+      - scenario: Scheduled activation
+        behavior: Job scheduler activates on effective date
+      exception_flows:
+      - scenario: Config bus unavailable
+        behavior: Retry, queue in dead-letter, alert ops
+  acceptance_criteria:
+  - Rule updates propagate to workflow engine within 5 minutes
+  - Versioning maintains full audit chain
+  - UI reflects status accurately
+  data_dependencies:
+  - Rule version store
+  - Reference queue table
+  - Config event bus
+  audit_or_explainability_needs:
+  - Version history, approver, effective date, diff
+  layer_implications:
+  integration:
+  - Config event publishing
+  - Dead-letter routing for failures
+  application:
+  - Rule versioning service
+  - Effective date scheduler
+  - UI state sync
+- id: US-003
+  title: Operations analyst monitors statutory deadline compliance via dashboard
+  persona: operations analyst
+  persona_type: operations_user
+  trigger: Analyst opens operational dashboard
+  story: As an operations analyst, I want to view real-time statutory deadline compliance and task aging, so I can proactively address SLA breaches.
+  business_value: Enables proactive SLA management, reduces compliance risk, and improves resource allocation.
+  priority: P1
+  preconditions:
+  - Materialized view is populated
+  - Dashboard service is running
+  algorithm_to_be_tested:
+    name: MaterializedViewAggregationAlgorithm
+    purpose: Pre-aggregate workflow states and deadlines for fast dashboard queries
+    applies_when: Dashboard request or scheduled refresh
+    description: Queries DynamoDB materialized view, applies aging thresholds, and returns compliance metrics.
+    input_criteria:
+      required_inputs:
+      - query_timeframe
+      - jurisdiction_filter
+      optional_inputs:
+      - queue_filter
+      - status_filter
+      input_validation:
+      - Timeframe within 90 days
+      - Filters match reference tables
+      freshness_requirements:
+      - View refreshed within 2 minutes of state change
+      processing_steps:
+      - step: Query materialized view
+        description: Fetch pre-aggregated records
+      - step: Apply filters
+        description: Slice by timeframe, jurisdiction, queue
+      - step: Calculate aging
+        description: Compare current time to deadline
+      - step: Return metrics
+        description: Format for dashboard consumption
+      business_rules:
+      - Breach threshold = deadline - 24 hours
+      - Aging buckets: On-track, At-risk, Breached
+      decision_points:
+      - decision: Threshold evaluation
+        rule: Compare current timestamp to deadline
+        expected_outcome: Correct bucket assignment
+      output_criteria:
+      success_outputs:
+      - Aggregated metrics, breach list, aging distribution
+      failure_outputs:
+      - Fallback to near-real-time query with warning
+      status_updates:
+      - Dashboard state updated
+      emitted_events:
+      - dashboard.metrics.refreshed
+      user_visible_outputs:
+      - Dashboard charts and breach table
+      edge_cases:
+      - Timezone handling for jurisdictional deadlines
+      - Missing deadlines default to warning state
+      negative_scenarios:
+      - View corruption triggers rebuild job
+      explainability_expectations:
+      - Aggregation logic, refresh timestamp, fallback flag
+      audit_evidence:
+      - Query params, refresh interval, fallback usage
+      sample_test_scenarios:
+      - scenario: Normal refresh
+        given: View populated
+        when: Dashboard requested
+        then: Metrics returned within 1 second
+      - scenario: Timezone mismatch
+        given: Jurisdiction with DST
+        when: Query executed
+        then: Deadlines adjusted correctly
+      main_success_flow:
+      - step: Request dashboard
+      - step: Query DynamoDB
+      - step: Apply filters
+      - step: Return metrics
+      alternate_flows:
+      - scenario: View stale
+        behavior: Trigger incremental rebuild
+      exception_flows:
+      - scenario: DynamoDB throttling
+        behavior: Retry with exponential backoff, degrade to cache
+  acceptance_criteria:
+  - Dashboard loads within 2 seconds
+  - Breach detection accurate within 1 minute
+  - Timezone handling correct per jurisdiction
+  data_dependencies:
+  - Audit_Diary_Manager_dynamodb
+  - Central_Data_Store_dynamodb
+  - Reference timezone table
+  audit_or_explainability_needs:
+  - Refresh interval, fallback usage, query params
+  layer_implications:
+  integration:
+  - Event-to-view sync
+  - Throttle handling
+  application:
+  - Dashboard aggregation service
+  - Timezone resolver
+  - Cache layer
+- id: US-004
+  title: Compliance auditor reviews decision trail and explainability for regulatory check
+  persona: compliance auditor
+  persona_type: compliance_or_audit_user
+  trigger: Audit request initiated for specific engagement ID
+  story: As a compliance auditor, I want to view complete decision trails, rule versions, and explainability context for any engagement, so I can verify regulatory adherence.
+  business_value: Ensures audit readiness, reduces investigation time, and demonstrates compliance control.
+  priority: P0
+  preconditions:
+  - Audit trail store is populated
+  - Auditor has read-only compliance role
+  algorithm_to_be_tested:
+    name: AuditTrailReconstructionAlgorithm
+    purpose: Reconstruct full decision context from event logs and state transitions
+    applies_when: Audit request for engagement ID
+    description: Queries event log, workflow state history, and rule execution records to build explainability report.
+    input_criteria:
+      required_inputs:
+      - engagement_id
+      optional_inputs:
+      - timeframe
+      - rule_version_filter
+      input_validation:
+      - Engagement ID exists
+      - Timeframe valid
+      freshness_requirements:
+      - Audit data immutable after 24 hours
+      processing_steps:
+      - step: Query event log
+        description: Fetch all events for engagement
+      - step: Retrieve state history
+        description: Get workflow transitions
+      - step: Fetch rule execution records
+        description: Match rule versions to decisions
+      - step: Compile report
+        description: Structure for auditor consumption
+      business_rules:
+      - All decisions must include rule version and match timestamp
+      - Overrides require approval context
+      decision_points:
+      - decision: Missing context detection
+        rule: Flag if rule version or timestamp absent
+        expected_outcome: Complete or flagged report
+      output_criteria:
+      success_outputs:
+      - Structured audit report with decision chain
+      failure_outputs:
+      - Incomplete report with missing context warnings
+      status_updates:
+      - Audit request status to COMPLETED or PARTIAL
+      emitted_events:
+      - audit.report.generated
+      user_visible_outputs:
+      - Audit report UI with expandable decision nodes
+      edge_cases:
+      - Purged events beyond retention period
+      - Cross-jurisdictional rule merges
+      negative_scenarios:
+      - Data corruption triggers manual review
+      explainability_expectations:
+      - Rule match rationale, override approval, fallback usage
+      audit_evidence:
+      - Immutable event log, state history, rule snapshots
+      sample_test_scenarios:
+      - scenario: Complete trail
+        given: All events logged
+        when: Audit requested
+        then: Full report generated
+      - scenario: Missing rule version
+        given: Legacy event without version
+        when: Audit requested
+        then: Flagged with explanation
+      main_success_flow:
+      - step: Request audit
+      - step: Query logs
+      - step: Compile report
+      - step: Return report
+      alternate_flows:
+      - scenario: Partial data
+        behavior: Return report with missing context warnings
+      exception_flows:
+      - scenario: Log store unavailable
+        behavior: Retry, alert data engineer
+  acceptance_criteria:
+  - Report generated within 3 seconds
+  - All decisions include rule version and match context
+  - Missing context clearly flagged
+  data_dependencies:
+  - Event log store
+  - Workflow state history
+  - Rule execution records
+  audit_or_explainability_needs:
+  - Immutable logs, rule snapshots, override approvals
+  layer_implications:
+  integration:
+  - Event log persistence
+  - Immutability enforcement
+  application:
+  - Audit reconstruction service
+  - Report formatter
+  - Flag logic
+- id: US-005
+  title: Support user handles stuck workflow state with manual override
+  persona: support user handling exceptions
+  persona_type: support_or_exception_user
+  trigger: Workflow state stuck or timeout detected
+  story: As a support user, I want to manually advance or reset workflow states with approval context, so I can resolve processing blocks without data loss.
+  business_value: Reduces mean time to resolution, prevents data inconsistency, and maintains audit integrity.
+  priority: P1
+  preconditions:
+  - Support role has override permissions
+  - Manual review queue is active
+  algorithm_to_be_tested:
+    name: ManualOverrideValidationAlgorithm
+    purpose: Validate override request, apply approval context, and execute state transition
+    applies_when: Support submits override request
+    description: Validates target state, checks transition matrix, records approval context, and triggers state machine update.
+    input_criteria:
+      required_inputs:
+      - engagement_id
+      - target_state
+      - override_reason
+      - approver_id
+      optional_inputs:
+      - deadline_extension_hours
+      - notification_recipients
+      input_validation:
+      - Target state reachable from current state
+      - Override reason non-empty
+      - Approver has authorization
+      freshness_requirements:
+      - Override applied within 5 minutes
+      processing_steps:
+      - step: Validate transition matrix
+        description: Check if target state is allowed
+      - step: Verify approval
+        description: Confirm approver role and context
+      - step: Apply deadline extension if requested
+        description: Update statutory diary entry
+      - step: Execute state transition
+        description: Update workflow state machine
+      business_rules:
+      - Only states in transition matrix are allowed
+      - Deadline extension requires compliance sign-off if > 48 hours
+      decision_points:
+      - decision: Transition validity
+        rule: Matrix lookup with role check
+        expected_outcome: Allowed or rejected
+      output_criteria:
+      success_outputs:
+      - State updated, diary adjusted, audit record created
+      failure_outputs:
+      - Validation error with transition matrix guidance
+      status_updates:
+      - Workflow state transitions to TARGET_STATE
+      emitted_events:
+      - workflow.state.overridden
+      - statutory.deadline.extended
+      user_visible_outputs:
+      - Console shows state change and override reason
+      edge_cases:
+      - Concurrent override attempts handled via locking
+      - Extension > 48h triggers secondary approval
+      negative_scenarios:
+      - Invalid target state rejects with matrix reference
+      explainability_expectations:
+      - Override reason, approver, transition validity, extension context
+      audit_evidence:
+      - Override request, approval chain, state diff
+      sample_test_scenarios:
+      - scenario: Valid override
+        given: Reachable state and valid approver
+        when: Override submitted
+        then: State transitions, audit logged
+      - scenario: Invalid transition
+        given: Unreachable state
+        when: Override submitted
+        then: Rejected with matrix reference
+      main_success_flow:
+      - step: Support submits override
+      - step: System validates matrix
+      - step: Verify approval
+      - step: Execute transition
+      alternate_flows:
+      - scenario: Secondary approval required
+        behavior: Route to compliance queue
+      exception_flows:
+      - scenario: State machine lock conflict
+        behavior: Retry with exponential backoff, alert if persistent
+  acceptance_criteria:
+  - Override applied within 5 minutes
+  - Audit trail captures full approval context
+  - Invalid transitions rejected with clear guidance
+  data_dependencies:
+  - Transition matrix config
+  - Approval role table
+  - Statutory diary store
+  audit_or_explainability_needs:
+  - Override reason, approver, state diff, extension context
+  layer_implications:
+  integration:
+  - Override event publishing
+  - Lock management
+  application:
+  - State machine executor
+  - Approval validator
+  - Diary updater
+- id: US-006
+  title: External system submits engagement event and receives status callback
+  persona: external system or automated system actor
+  persona_type: external_system_actor
+  trigger: External system calls ingestion API
+  story: As an external system, I want to submit engagement events with idempotency keys and receive status callbacks, so I can track processing without polling.
+  business_value: Enables reliable async integration, reduces system load, and ensures consistent state.
+  priority: P0
+  preconditions:
+  - Ingestion API is active
+  - Callback endpoint configured
+  algorithm_to_be_tested:
+    name: IdempotentIngestionAlgorithm
+    purpose: Validate idempotency key, prevent duplicates, and trigger async processing
+    applies_when: External system calls ingestion API
+    description: Checks key in deduplication store, validates schema, publishes to event bus, and schedules callback.
+    input_criteria:
+      required_inputs:
+      - idempotency_key
+      - event_payload
+      - callback_url
+      optional_inputs:
+      - retry_count
+      - priority
+      input_validation:
+      - Idempotency key format valid
+      - Payload matches schema
+      - Callback URL reachable
+      freshness_requirements:
+      - Deduplication check within 100ms
+      processing_steps:
+      - step: Check deduplication store
+        description: Query by idempotency_key
+      - step: Validate schema
+        description: Run JSON schema validation
+      - step: Publish to event bus
+        description: Async publish with correlation ID
+      - step: Schedule callback
+        description: Queue callback event
+      business_rules:
+      - Duplicate key returns original processing status
+      - Invalid schema rejects with validation errors
+      decision_points:
+      - decision: Duplicate detection
+        rule: Key exists check
+        expected_outcome: Return status or proceed
+      output_criteria:
+      success_outputs:
+      - 202 Accepted with correlation ID
+      failure_outputs:
+      - 400 Bad Request with validation details
+      status_updates:
+      - Event status to RECEIVED or DUPLICATE
+      emitted_events:
+      - ingestion.event.submitted
+      - callback.status.updated
+      user_visible_outputs:
+      - API response with correlation ID
+      edge_cases:
+      - Key collision across different event types handled by namespace
+      - Callback URL timeout handled via retry
+      negative_scenarios:
+      - Schema violation rejects with field-level errors
+      explainability_expectations:
+      - Deduplication decision, schema validation result, correlation ID
+      audit_evidence:
+      - Key hash, validation logs, callback queue state
+      sample_test_scenarios:
+      - scenario: First submission
+        given: New idempotency key
+        when: API called
+        then: 202 returned, event published
+      - scenario: Duplicate submission
+        given: Existing key
+        when: API called
+        then: 200 returned with original correlation ID
+      main_success_flow:
+      - step: External system calls API
+      - step: Check deduplication store
+      - step: Validate schema
+      - step: Publish event
+      alternate_flows:
+      - scenario: Callback URL down
+        behavior: Queue callback, retry with backoff
+      exception_flows:
+      - scenario: Event bus unavailable
+        behavior: Retry, dead-letter, alert ops
+  acceptance_criteria:
+  - Deduplication check within 100ms
+  - Schema validation rejects invalid payloads
+  - Callback scheduled reliably
+  data_dependencies:
+  - Deduplication store
+  - Event bus
+  - Callback queue
+  audit_or_explainability_needs:
+  - Key hash, validation logs, callback state
+  layer_implications:
+  integration:
+  - API gateway
+  - Deduplication check
+  - Event bus publish
+  application:
+  - Schema validator
+  - Callback scheduler
+  - Correlation ID generator
+- id: US-007
+  title: Data reconciliation process verifies event bus vs application state
+  persona: data synchronization or reconciliation process
